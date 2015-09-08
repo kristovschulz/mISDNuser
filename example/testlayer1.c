@@ -118,7 +118,7 @@ void usage(void) {
 #define TX_BURST_HEADER_SZ 5
 
 
-static char * CHAN_NAMES[MAX_CHAN] = {
+static const char * CHAN_NAMES[MAX_CHAN] = {
 	"B1", "B2", "D "
 };
 
@@ -203,7 +203,7 @@ void sig_handler(int sig) {
 	exit(0);
 }
 
-void set_signals() {
+void set_signals(void) {
 	/* Set up the signal handler */
 	signal(SIGHUP, sig_handler);
 	signal(SIGINT, sig_handler);
