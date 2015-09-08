@@ -1202,6 +1202,7 @@ static int do_control_worker(devinfo_t *di)
 				break;
 #endif
 			}
+			break;
 		case MT_CONNECT_ACKNOWLEDGE:
 			mylog(3, "got %s\n", mi_msg_type2str(cmd));
 			/* We got connect ack, so bring B-channel up */
@@ -1294,6 +1295,8 @@ static int bch_worker(devinfo_t *di)
 			ret = write(di->save, buf + MISDN_HEADER_LEN, len - MISDN_HEADER_LEN);
 			if (ret < 0)
 				fprintf(stderr,"got error on write %s\n", strerror(errno));
+			else
+				ret = 0;
 			break;
 		case PH_DATA_CNF:
 			/* get ACK of send data, so we can
