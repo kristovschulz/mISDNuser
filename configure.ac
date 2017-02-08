@@ -144,7 +144,7 @@ then
 		)
 	fi
 	AC_SUBST( [MISDN_CAPI_SOCKET_NAME], "sock" )
-	AC_SUBST( [MISDN_CAPI_SOCKET_DIR], "$(localstatedir)/run/mISDNcapid" )
+	AC_SUBST( [MISDN_CAPI_SOCKET_DIR], "${localstatedir}/run/mISDNcapid" )
 fi
 
 # Checks for library functions.
