@@ -19,6 +19,7 @@
 #include "m_capi.h"
 #include "mc_buffer.h"
 #include "ncci.h"
+#include "ahdlc.h"
 #include "SupplementaryService.h"
 #include <mISDN/q931.h>
 
@@ -1070,16 +1071,28 @@ static int ncciDataInd(struct mNCCI *ncci, int pr, struct mc_buf *mc)
 	}
 	if (ncci->BIlink->tty > -1) {
 		/* transfer via a pseudo tty */
+		int wlen = dlen;
 		pthread_mutex_unlock(&ncci->lock);
 		hh++;
 		mc->rp = (unsigned char *)hh;
-		ret = write(ncci->BIlink->tty, mc->rp, dlen);
-		if (ret != dlen)
+		if (ncci->BIlink->proto == ISDN_P_B_HDLC &&
+				(ncci->appl->UserFlags & CAPIFLAG_AHDLC) != 0) {
+			unsigned char *out;
+			ret = ahdlc_encode(mc->rp, dlen, &out);
+			if (ret > 0) {
+				wlen = ret;
+				ret = write(ncci->BIlink->tty, out, wlen);
+				free(out);
+			}
+		} else {
+			ret = write(ncci->BIlink->tty, mc->rp, dlen);
+		}
+		if (ret != wlen)
 			wprint("%s: frame with %d bytes only %d bytes were written to tty - %s\n",
-				CAPIobjIDstr(&ncci->cobj), dlen, ret, strerror(errno));
+				CAPIobjIDstr(&ncci->cobj), wlen, ret, strerror(errno));
 		else {
 			dprint(MIDEBUG_NCCI, "%s: frame with %d bytes was written to tty\n",
-				CAPIobjIDstr(&ncci->cobj), dlen);
+				CAPIobjIDstr(&ncci->cobj), wlen);
 			dhexprint(MIDEBUG_NCCI_DATA, "Data: ", mc->rp, dlen);
 		}
 		free_mc_buf(mc);

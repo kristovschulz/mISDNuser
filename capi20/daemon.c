@@ -32,6 +32,7 @@
 #include "mc_buffer.h"
 #include "m_capi_sock.h"
 #include "alaw.h"
+#include "ahdlc.h"
 #ifdef USE_SOFTFAX
 #include "g3_mh.h"
 #endif
@@ -892,19 +893,45 @@ static int Create_tty(struct BInstance *bi)
 static int recvBchannel(struct BInstance *);
 
 
+static int send_tty_data(struct BInstance *bi, struct mc_buf *mc)
+{
+	/* Fake length of DATA_B3 REQ to pass offset check */
+	capimsg_setu16(mc->rb, 0, 22);
+	mc->cmsg.Command = CAPI_DATA_TTY;
+	mc->cmsg.Subcommand = CAPI_REQ;
+	return bi->from_up(bi, mc);
+}
+
+static int send_tty_data_cb(void *arg, struct mc_buf *mc)
+{
+	return send_tty_data((struct BInstance *) arg, mc);
+}
+
 static int recv_tty(struct BInstance *bi)
 {
 	int ret, maxl;
-	struct mc_buf *mc;
+	struct mc_buf *mc = 0;
+	unsigned char *buf = 0;
 
-	mc = alloc_mc_buf();
-	if (!mc)
-		return -ENOMEM;
 	if (!bi)
 		return -EINVAL;
-	mc->rp  = mc->rb + 8;
-	maxl = MC_RB_SIZE - 8;
-	ret = read(bi->tty, mc->rp, maxl);
+
+	if (bi->proto != ISDN_P_B_HDLC ||
+		(bi->lp->Appl->UserFlags & CAPIFLAG_AHDLC) == 0) {
+		mc = alloc_mc_buf();
+		if (!mc)
+			return -ENOMEM;
+		mc->rp  = mc->rb + 8;
+		maxl = MC_RB_SIZE - 8;
+		ret = read(bi->tty, mc->rp, maxl);
+	} else {
+		maxl = ahdlc_alloc_decode_buffer(&buf);
+		if (!buf) {
+			return -ENOMEM;
+		}
+		ret = read(bi->tty, buf, maxl);
+	}
+
 	if (ret < 0) {
 		wprint("Error on reading from tty %d errno %d - %s\n", bi->tty, errno, strerror(errno));
 		ret = -errno;
@@ -912,21 +939,29 @@ static int recv_tty(struct BInstance *bi)
 		/* closed */
 		wprint("Read 0 bytes from tty %d\n", bi->tty);
 		ret = -ECONNABORTED;
-	} else if (ret == maxl) {
+	} else if (ret == maxl && mc != 0) {
 		eprint("Message too big %d ctrl %02x (%02x%02x%02x%02x%02x%02x%02x%02x)\n",
 		       ret, mc->rp[0], mc->rp[1], mc->rp[2], mc->rp[3], mc->rp[4], mc->rp[5], mc->rp[6], mc->rp[7], mc->rp[8]);
 		ret = -EMSGSIZE;
 	}
 	if (ret > 0) {
-		mc->len = ret;
-		/* Fake length of DATA_B3 REQ to pass offset check */
-		capimsg_setu16(mc->rb, 0, 22);
-		mc->cmsg.Command = CAPI_DATA_TTY;
-		mc->cmsg.Subcommand = CAPI_REQ;
-		ret = bi->from_up(bi, mc);
+		if (bi->proto == ISDN_P_B_HDLC &&
+			(bi->lp->Appl->UserFlags & CAPIFLAG_AHDLC) != 0) {
+			if (bi->ahdlc_state == 0) {
+				bi->ahdlc_state = ahdlc_alloc_decode_state();
+			}
+			ret = ahdlc_decode(bi->ahdlc_state, buf + 1, ret - 1,
+					   send_tty_data_cb, bi);
+		} else {
+			mc->len = ret;
+			ret = send_tty_data(bi, mc);
+		}
 	}
 
-	if (ret != 0)		/* if message is not queued or freed */
+	if (buf != 0) {
+		ahdlc_free_decode_buffer(buf);
+	}
+	if (ret != 0 && mc != 0)	/* if message is not queued or freed */
 		free_mc_buf(mc);
 	return ret;
 }
@@ -1382,6 +1417,10 @@ int CloseBInstance(struct BInstance *bi)
 					if (bi->lp) {
 						put_cobj(&bi->lp->cobj);
 						bi->lp = NULL;
+					}
+					if (bi->ahdlc_state) {
+						ahdlc_free_decode_state(bi->ahdlc_state);
+						bi->ahdlc_state = 0;
 					}
 					bi->from_up(bi, NULL);
 					bi->b3data = NULL;

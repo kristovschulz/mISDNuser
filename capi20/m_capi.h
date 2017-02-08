@@ -69,6 +69,7 @@ struct mNCCI;
 struct pController;
 struct lController;
 struct BInstance;
+struct ahdlc_decode_state;
 
 extern int mI_ControllerCount;
 extern struct timer_base *mICAPItimer_base;
@@ -196,6 +197,7 @@ struct BInstance {
 	int			timeout;
 	int			cpipe[2];
 	sem_t			wait;
+	struct ahdlc_decode_state *ahdlc_state;
 	unsigned int		running:1;
 	unsigned int		waiting:1;
 	unsigned int		release_pending:1;
@@ -541,6 +543,7 @@ void mCapi_message2str(struct mc_buf *);
 
 
 #define CAPIFLAG_HIGHJACKING	1
+#define CAPIFLAG_AHDLC		2 /* B3 HDLC data is encoded in AHDLC */
 
 #define CAPI_DATA_TTY		0xe0
 
